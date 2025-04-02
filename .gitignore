@@ -1,7 +1,5 @@
 # Data files
 *.csv
-!combined_data.csv
-!employee_growth_rates.csv
 
 # Python
 __pycache__/
