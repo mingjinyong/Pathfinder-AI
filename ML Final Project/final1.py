@@ -49,3 +49,28 @@ print("\nMissing Values:")
 print("=" * 50)
 missing_values = data.isnull().sum()
 print(missing_values[missing_values > 0])
+
+# Calculate and display correlations between numeric columns
+print("\nCorrelation Analysis:")
+print("=" * 50)
+# Select only numeric columns for correlation
+numeric_columns = data.select_dtypes(include=['int64', 'float64']).columns
+if len(numeric_columns) > 0:
+    correlation_matrix = data[numeric_columns].corr()
+    print("\nCorrelation Matrix:")
+    print(correlation_matrix)
+    
+    # Find strong correlations (absolute value > 0.7)
+    strong_correlations = []
+    for i in range(len(numeric_columns)):
+        for j in range(i+1, len(numeric_columns)):
+            corr = correlation_matrix.iloc[i, j]
+            if abs(corr) > 0.7:
+                strong_correlations.append((numeric_columns[i], numeric_columns[j], corr))
+    
+    if strong_correlations:
+        print("\nStrong Correlations (|r| > 0.7):")
+        for col1, col2, corr in strong_correlations:
+            print(f"{col1} - {col2}: {corr:.3f}")
+    else:
+        print("\nNo strong correlations found (|r| > 0.7)")
