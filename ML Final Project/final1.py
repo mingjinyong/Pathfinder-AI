@@ -93,7 +93,6 @@ def analyze_employee_growth(df):
     
     return growth_df
 
-# Create the analysis
 print("\nAnalyzing employee growth by job title over time...")
 growth_analysis = analyze_employee_growth(data)
 

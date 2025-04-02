@@ -156,11 +156,8 @@ def ensure_standard_columns(df):
     df = df[standard_columns]
     return df
 
-def process_and_combine_data(old_data_path, new_data_path):
-    """Process all CSV files from OLD DATA and combine them into a single file in NEW DATA"""
-    # Create NEW DATA directory if it doesn't exist
-    ensure_directory_exists(new_data_path)
-    
+def process_and_combine_data(old_data_path, output_dir):
+    """Process all CSV files from OLD DATA and combine them into a single file"""
     # List to store all dataframes
     all_dfs = []
     
@@ -197,7 +194,7 @@ def process_and_combine_data(old_data_path, new_data_path):
     combined_df = pd.concat(all_dfs, ignore_index=True)
     
     # Save the combined data
-    output_file = os.path.join(new_data_path, 'combined_data.csv')
+    output_file = os.path.join(output_dir, 'combined_data.csv')
     print(f"Saving combined data to {output_file}...")
     combined_df.to_csv(output_file, index=False)
     print(f"Successfully saved combined data with {len(combined_df)} rows")
@@ -207,16 +204,14 @@ def main():
     # Define paths
     base_path = os.path.dirname(os.path.abspath(__file__))
     old_data_path = os.path.join(base_path, 'OLD DATA')
-    new_data_path = os.path.join(base_path, 'NEW DATA')
     
     print(f"Base path: {base_path}")
     print(f"Old data path: {old_data_path}")
-    print(f"New data path: {new_data_path}")
     
     print("\nStarting data processing and combination...")
     print("=" * 50)
     
-    process_and_combine_data(old_data_path, new_data_path)
+    process_and_combine_data(old_data_path, base_path)
 
 if __name__ == '__main__':
     main() 
