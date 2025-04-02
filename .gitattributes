@@ -1,1 +1,2 @@
 ML[[:space:]]Final[[:space:]]Project/OEWS[[:space:]]Data/all_data_M_*.csv filter=lfs diff=lfs merge=lfs -text
+*.csv filter=lfs diff=lfs merge=lfs -text
