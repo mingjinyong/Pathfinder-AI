@@ -120,3 +120,4 @@ for bar in bars:
 
 plt.tight_layout()
 plt.show()
+

@@ -207,11 +207,11 @@ def main():
     # Define paths
     base_path = os.path.dirname(os.path.abspath(__file__))
     old_data_path = os.path.join(base_path, 'OLD DATA')
-    new_data_path = os.path.join(base_path, 'NEW DATA')
+    new_data_path = base_path  # Changed to use OEWS Data directory directly
     
     print(f"Base path: {base_path}")
     print(f"Old data path: {old_data_path}")
-    print(f"New data path: {new_data_path}")
+    print(f"Output path: {new_data_path}")
     
     print("\nStarting data processing and combination...")
     print("=" * 50)
