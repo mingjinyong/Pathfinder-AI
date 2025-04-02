@@ -20,6 +20,10 @@ def load_standardized_data():
         print(f"\nReading file: {file_path}")  # Debug print to track file reading
         df = pd.read_csv(file_path, low_memory=False)  # Added low_memory=False to avoid dtype warnings
         print(f"Shape of data: {df.shape}")  # Debug print to see data shape
+        
+        # Convert tot_emp to numeric, replacing any non-numeric values with NaN
+        df['tot_emp'] = pd.to_numeric(df['tot_emp'], errors='coerce')
+        
         return df
         
     except Exception as e:
@@ -50,27 +54,70 @@ print("=" * 50)
 missing_values = data.isnull().sum()
 print(missing_values[missing_values > 0])
 
-# Calculate and display correlations between numeric columns
-print("\nCorrelation Analysis:")
-print("=" * 50)
-# Select only numeric columns for correlation
-numeric_columns = data.select_dtypes(include=['int64', 'float64']).columns
-if len(numeric_columns) > 0:
-    correlation_matrix = data[numeric_columns].corr()
-    print("\nCorrelation Matrix:")
-    print(correlation_matrix)
+
+def analyze_employee_growth(df):
+    """
+    Analyzes the growth rate of employees by job title over time
+    Returns a DataFrame with job titles and their growth rates
+    """
+    # Create pivot table with employee counts
+    pivot_table = df.pivot_table(
+        values='tot_emp',
+        index='occ_title',
+        columns='year',
+        aggfunc='sum',
+        fill_value=0
+    )
     
-    # Find strong correlations (absolute value > 0.7)
-    strong_correlations = []
-    for i in range(len(numeric_columns)):
-        for j in range(i+1, len(numeric_columns)):
-            corr = correlation_matrix.iloc[i, j]
-            if abs(corr) > 0.7:
-                strong_correlations.append((numeric_columns[i], numeric_columns[j], corr))
+    # Calculate growth rate from first to last year
+    first_year = pivot_table.columns.min()
+    last_year = pivot_table.columns.max()
     
-    if strong_correlations:
-        print("\nStrong Correlations (|r| > 0.7):")
-        for col1, col2, corr in strong_correlations:
-            print(f"{col1} - {col2}: {corr:.3f}")
-    else:
-        print("\nNo strong correlations found (|r| > 0.7)")
+    # Calculate percentage change
+    growth_rates = ((pivot_table[last_year] - pivot_table[first_year]) / pivot_table[first_year] * 100)
+    
+    # Create a DataFrame with job titles and growth rates
+    growth_df = pd.DataFrame({
+        'Job Title': growth_rates.index,
+        'Growth Rate (%)': growth_rates.values,
+        'First Year Count': pivot_table[first_year],
+        'Last Year Count': pivot_table[last_year]
+    })
+    
+    # Sort by growth rate
+    growth_df = growth_df.sort_values('Growth Rate (%)', ascending=False)
+    
+    # Filter out jobs with missing or invalid data
+    growth_df = growth_df.dropna()
+    growth_df = growth_df[growth_df['First Year Count'] > 0]  # Remove jobs that started with 0 employees
+    
+    return growth_df
+
+# Create the analysis
+print("\nAnalyzing employee growth by job title over time...")
+growth_analysis = analyze_employee_growth(data)
+
+
+# Save the analysis to a CSV file
+output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "OEWS Data")
+output_file = os.path.join(output_dir, "employee_growth_rates.csv")
+growth_analysis.to_csv(output_file, index=False)
+print(f"\nAnalysis saved to: {output_file}")
+
+# Create a bar plot of the top 10 job titles by growth rate
+plt.figure(figsize=(15, 8))
+bars = plt.bar(range(10), growth_analysis.head(10)['Growth Rate (%)'])
+plt.title('Top 10 Fastest Growing Job Titles')
+plt.xlabel('Job Title')
+plt.ylabel('Growth Rate (%)')
+plt.xticks(range(10), growth_analysis.head(10)['Job Title'], rotation=45, ha='right')
+
+# Add value labels on top of each bar
+for bar in bars:
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height,
+             f'{height:.1f}%',
+             ha='center', va='bottom')
+
+plt.tight_layout()
+plt.show()
