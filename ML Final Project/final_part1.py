@@ -17,7 +17,7 @@ def load_standardized_data() -> pd.DataFrame:
     """
     Load and preprocess the combined OEWS dataset.
     
-    Returns:
+    Returns
         pd.DataFrame: Processed dataset with standardized columns
         
     Raises:
