@@ -13,17 +13,8 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+# LOAD AND PREPROCESS THE COMBINED OEWS DATASET
 def load_standardized_data() -> pd.DataFrame:
-    """
-    Load and preprocess the combined OEWS dataset.
-    
-    Returns
-        pd.DataFrame: Processed dataset with standardized columns
-        
-    Raises:
-        FileNotFoundError: If the data file cannot be found
-        ValueError: If there are issues with data conversion
-    """
     current_dir = Path(__file__).parent
     data_dir = current_dir / "OEWS Data"
     file_path = data_dir / "combined_data.csv"
@@ -45,129 +36,154 @@ def load_standardized_data() -> pd.DataFrame:
         print(f"\nERROR: Failed to process data: {str(e)}")
         raise
 
+
+# ANALYZE THE GROWTH RATE OF # OF EMPLOYEES OVER TIME
 def analyze_employee_growth(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Analyze the growth rate of employees by job title over time.
-    
-    Args:
-        df (pd.DataFrame): Input DataFrame containing employment data
-        
-    Returns:
-        pd.DataFrame: DataFrame containing job titles and their growth rates
-    """
+    """Calculates the average annual year-over-year employee growth rate."""
     pivot_table = df.pivot_table(
         values='tot_emp',
         index='occ_title',
         columns='year',
         aggfunc='sum',
-        fill_value=0
-    )
-    
-    first_year, last_year = pivot_table.columns.min(), pivot_table.columns.max()
-    growth_rates = ((pivot_table[last_year] - pivot_table[first_year]) / pivot_table[first_year] * 100)
-    
+        fill_value=0 # Fill with 0 to allow pct_change calculation
+    ).sort_index(axis=1) # Ensure years are columns and sorted
+
+    if pivot_table.shape[1] < 2:
+        print("WARN: Not enough years with data to calculate year-over-year growth.")
+        return pd.DataFrame()
+
+    # Calculate year-over-year percentage change across columns (years)
+    annual_growth = pivot_table.pct_change(axis='columns') * 100
+
+    # Calculate the mean annual growth rate for each occupation
+    # skipna=True ignores the NaN from the first year's calculation
+    mean_annual_growth = annual_growth.mean(axis=1, skipna=True)
+
+    # Get first and last year details for context
+    first_year = pivot_table.columns.min()
+    last_year = pivot_table.columns.max()
+    first_counts = pivot_table[first_year]
+    last_counts = pivot_table[last_year]
+
     growth_df = pd.DataFrame({
-        'Occupation Title': growth_rates.index,
-        'Growth Rate (%)': growth_rates.values,
-        'First Year Count': pivot_table[first_year],
-        'Last Year Count': pivot_table[last_year],
+        'Occupation Title': mean_annual_growth.index,
+        'Mean Annual Growth (%)': mean_annual_growth.values,
+        'First Year Count': first_counts,
+        'Last Year Count': last_counts,
         'First Year': first_year,
         'Last Year': last_year
     })
-    
-    return (growth_df
-            .dropna()
-            .query('`First Year Count` > 0')
-            .sort_values('Growth Rate (%)', ascending=False))
 
-def calculate_salary_growth_rates(data: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate salary growth rates for each occupation over time.
-    
-    Args:
-        data (pd.DataFrame): Input DataFrame containing salary data
-        
-    Returns:
-        pd.DataFrame: DataFrame containing salary growth statistics by occupation
-    """
+    # Handle potential infinities (growth from 0)
+    growth_df.replace([np.inf, -np.inf], pd.NA, inplace=True)
+
+    return growth_df.sort_values('Mean Annual Growth (%)', ascending=False, na_position='last')
+
+
+# ANALYZE THE GROWTH RATES OF SALARIES FOR EACH JOB OVER TIME
+def analyze_salary_growth(data: pd.DataFrame) -> pd.DataFrame:
     salary_trends = data[['occ_title', 'a_mean', 'year']].copy()
     salary_trends = salary_trends.sort_values(['occ_title', 'year'])
     salary_trends['wage_growth'] = salary_trends.groupby('occ_title')['a_mean'].pct_change(fill_method=None) * 100
-    
-    growth_stats = (salary_trends
-                   .groupby('occ_title')
-                   .agg({
-                       'wage_growth': 'mean',
-                       'a_mean': ['first', 'last'],
-                       'year': ['first', 'last']
-                   })
-                   .round(2))
-    
-    growth_stats.columns = ['Growth Rate (%)', 'First Year Amount', 'Last Year Amount', 
-                          'First Year', 'Last Year']
-    
-    growth_stats = growth_stats.reset_index()
-    growth_stats = growth_stats.rename(columns={'occ_title': 'Occupation Title'})
-    
-    return growth_stats.sort_values('Growth Rate (%)', ascending=False)
 
+    # Calculate aggregated statistics
+    aggregated_stats = (salary_trends
+                       .groupby('occ_title')
+                       .agg(
+                           mean_wage_growth=('wage_growth', 'mean'),
+                           first_amount=('a_mean', 'first'),
+                           last_amount=('a_mean', 'last'),
+                           first_year=('year', 'first'),
+                           last_year=('year', 'last')
+                       )
+                       .round(2))
+
+    # Create the final DataFrame
+    growth_df = pd.DataFrame({
+        'Occupation Title': aggregated_stats.index,
+        'Growth Rate (%)': aggregated_stats['mean_wage_growth'],
+        'First Year Amount': aggregated_stats['first_amount'],
+        'Last Year Amount': aggregated_stats['last_amount'],
+        'First Year': aggregated_stats['first_year'],
+        'Last Year': aggregated_stats['last_year']
+    })
+
+    return growth_df.sort_values('Growth Rate (%)', ascending=False)
+
+
+# PLOT OF THE TOP EMPLOYEE GROWTH JOBS
 def plot_top_growing_jobs(growth_analysis: pd.DataFrame, top_n: int = 10) -> Tuple[Figure, Axes]:
-    """
-    Create a bar plot of the top N fastest growing job titles.
-    
-    Args:
-        growth_analysis (pd.DataFrame): DataFrame containing growth analysis results
-        top_n (int): Number of top jobs to display
-        
-    Returns:
-        Tuple[Figure, Axes]: Matplotlib figure and axes objects
-    """
+    """Generates a bar plot for the top N occupations by mean annual employee growth."""
+    metric_column = 'Mean Annual Growth (%)' # The column generated by analyze_employee_growth
+    if metric_column not in growth_analysis.columns:
+        print(f"ERROR: Required column '{metric_column}' not found in employee growth data.")
+        return plt.subplots()
+
+    # Sort by the metric, handle NAs, get top N
+    plot_data = growth_analysis.dropna(subset=[metric_column]).sort_values(metric_column, ascending=False).head(top_n)
+
+    if plot_data.empty:
+        print(f"WARN: No valid data to plot for employee growth metric '{metric_column}'.")
+        return plt.subplots()
+
     fig, ax = plt.subplots(figsize=(15, 8))
-    top_jobs = growth_analysis.head(top_n)
-    bars = ax.bar(range(top_n), top_jobs['Growth Rate (%)'])
-    
-    ax.set_title('Top 10 Fastest Growing Job Titles')
+    bars = ax.bar(range(len(plot_data)), plot_data[metric_column])
+
+    # Update titles and labels
+    ax.set_title(f'Top {top_n} Job Titles by Mean Annual Employee Growth')
     ax.set_xlabel('Job Title')
-    ax.set_ylabel('Growth Rate (%)')
-    ax.set_xticks(range(top_n))
-    ax.set_xticklabels(top_jobs['Occupation Title'], rotation=45, ha='right')
-    
+    ax.set_ylabel('Mean Annual Growth (%)')
+    ax.set_xticks(range(len(plot_data)))
+    ax.set_xticklabels(plot_data['Occupation Title'], rotation=45, ha='right')
+
+    # Add percentage labels to bars
     for bar in bars:
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2., height,
                 f'{height:.1f}%',
-                ha='center', va='bottom')
-    
+                ha='center', va='bottom' if height >= 0 else 'top') # Adjust vertical alignment
+
     plt.tight_layout()
     return fig, ax
 
+
+# PLOT OF THE TOP SALARY GROWTH JOBS
+def plot_top_salary_growth(salary_analysis: pd.DataFrame, top_n: int = 10) -> Tuple[Figure, Axes]:
+    """Generates a bar plot for the top N occupations by salary growth rate."""
+    fig, ax = plt.subplots(figsize=(15, 8))
+    top_salaries = salary_analysis.head(top_n)
+    bars = ax.bar(range(top_n), top_salaries['Growth Rate (%)'])
+
+    ax.set_title(f'Top {top_n} Fastest Growing Salaries by Occupation')
+    ax.set_xlabel('Occupation Title')
+    ax.set_ylabel('Average Annual Salary Growth Rate (%)')
+    ax.set_xticks(range(top_n))
+    ax.set_xticklabels(top_salaries['Occupation Title'], rotation=45, ha='right')
+
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{height:.1f}%',
+                ha='center', va='bottom' if height >= 0 else 'top') # Adjust label position for negative growth
+
+    plt.tight_layout()
+    return fig, ax
+
+
+# SAVE ANALYSIS RESULTS TO CSV FILES
 def save_analysis_results(growth_analysis: pd.DataFrame, 
                          salary_growth_stats: pd.DataFrame,
                          output_dir: Optional[Path] = None) -> None:
-    """
-    Save analysis results to CSV files.
-    
-    Args:
-        growth_analysis (pd.DataFrame): Employee growth analysis results
-        salary_growth_stats (pd.DataFrame): Salary growth analysis results
-        output_dir (Optional[Path]): Directory to save results. Defaults to Computed Data directory
-    """
     if output_dir is None:
         output_dir = Path(__file__).parent / "Computed Data"
     output_dir.mkdir(exist_ok=True)
     
-    # Save with consistent formatting
     growth_analysis.to_csv(output_dir / "employee_growth_rates.csv", index=False, float_format='%.2f')
     salary_growth_stats.to_csv(output_dir / "salary_growth_rates.csv", index=False, float_format='%.2f')
     print(f"\nAnalysis results saved to: {output_dir}")
 
+# DISPLAY COMPREHENSIVE INFORMATION ABOUT THE DATASET
 def display_dataset_info(data: pd.DataFrame) -> None:
-    """
-    Display comprehensive information about the dataset.
-    
-    Args:
-        data (pd.DataFrame): Input DataFrame to analyze
-    """
     print("\nDataset Information:")
     print("=" * 50)
     print(f"Number of rows: {len(data):,}")
@@ -184,33 +200,52 @@ def display_dataset_info(data: pd.DataFrame) -> None:
         print("=" * 50)
         print(missing_values[missing_values > 0])
 
-def main() -> None:
-    """Main function to run all analyses."""
+
+# MAIN EXECUTION BLOCK
+def main():
     try:
         print("\nLoading data...")
         data = load_standardized_data()
         display_dataset_info(data)
-        
-        print("\nAnalyzing employment growth rates...")
+
+        print("\nAnalyzing mean annual employment growth rates...")
         print("=" * 50)
         growth_analysis = analyze_employee_growth(data)
-        print(f"Found growth rates for {len(growth_analysis)} occupations")
-        print(f"Time period: {growth_analysis['First Year'].iloc[0]} - {growth_analysis['Last Year'].iloc[0]}")
-        
-        print("\nAnalyzing salary growth rates...")
+        if not growth_analysis.empty:
+            print(f"Found growth rates for {len(growth_analysis)} occupations")
+            print(f"Time period: {growth_analysis['First Year'].iloc[0]} - {growth_analysis['Last Year'].iloc[0]}")
+        else:
+            print("No employment growth data generated.")
+
+        print("\nAnalyzing mean annual salary growth rates...")
         print("=" * 50)
-        salary_growth_stats = calculate_salary_growth_rates(data)
-        print(f"Found growth rates for {len(salary_growth_stats)} occupations")
-        print(f"Time period: {salary_growth_stats['First Year'].iloc[0]} - {salary_growth_stats['Last Year'].iloc[0]}")
-        
-        plot_top_growing_jobs(growth_analysis)
+        salary_growth_stats = analyze_salary_growth(data)
+        if not salary_growth_stats.empty:
+            print(f"Found growth rates for {len(salary_growth_stats)} occupations")
+            print(f"Time period: {salary_growth_stats['First Year'].iloc[0]} - {salary_growth_stats['Last Year'].iloc[0]}")
+        else:
+            print("No salary growth data generated.")
+
+        # Plot job growth (now uses mean annual growth) and show plot
+        if not growth_analysis.empty:
+            print("\nPlotting Top Mean Annual Employee Growth...")
+            plot_top_growing_jobs(growth_analysis)
+            plt.show()
+
+        # Plot salary growth and show plot
+        if not salary_growth_stats.empty:
+            print("\nPlotting Top Mean Annual Salary Growth...")
+            plot_top_salary_growth(salary_growth_stats)
+            plt.show()
+
+        # Save results
         save_analysis_results(growth_analysis, salary_growth_stats)
-        
+
         print("\nAnalysis complete!")
-        
+
     except Exception as e:
         print(f"\nError during analysis: {str(e)}")
         raise
 
-if __name__ == '__main__':
-    main()
+
+main()
