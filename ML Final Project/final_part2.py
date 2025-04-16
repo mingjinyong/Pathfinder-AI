@@ -25,7 +25,7 @@ from final_part1 import (
 # MERGE EMPLOYEE AND SALARY GROWTH DATA
 def merge_growth_data(emp_growth: pd.DataFrame, sal_growth: pd.DataFrame) -> pd.DataFrame:
     """Merges employee growth and salary growth dataframes."""
-    required_emp_col = 'Mean Annual Growth (%)'
+    required_emp_col = 'Mean Annual Growth (Absolute)'
     required_sal_col = 'Growth Rate (%)'
     if required_emp_col not in emp_growth.columns:
         raise KeyError(f"Required column '{required_emp_col}' not found in employee growth DataFrame. Columns: {emp_growth.columns.tolist()}")
@@ -37,10 +37,10 @@ def merge_growth_data(emp_growth: pd.DataFrame, sal_growth: pd.DataFrame) -> pd.
         on='Occupation Title',
     )
     merged_data = merged_data.rename(columns={
-        required_emp_col: 'Employee Growth Rate (%)',
+        required_emp_col: 'Employee Growth Rate (Absolute)',
         required_sal_col: 'Salary Growth Rate (%)'
     })
-    merged_data['Employee Growth Rate (%)'] = pd.to_numeric(merged_data['Employee Growth Rate (%)'], errors='coerce')
+    merged_data['Employee Growth Rate (Absolute)'] = pd.to_numeric(merged_data['Employee Growth Rate (Absolute)'], errors='coerce')
     merged_data['Salary Growth Rate (%)'] = pd.to_numeric(merged_data['Salary Growth Rate (%)'], errors='coerce')
     merged_data = merged_data.replace([np.inf, -np.inf], np.nan).dropna()
     return merged_data
@@ -94,7 +94,7 @@ def plot_growth_correlation_for_group(data: pd.DataFrame,
     # Merge growth data for the group
     merged_group_data = merge_growth_data(emp_growth_group, sal_growth_group)
 
-    emp_col = 'Employee Growth Rate (%)'
+    emp_col = 'Employee Growth Rate (Absolute)'
     sal_col = 'Salary Growth Rate (%)'
 
     if merged_group_data.empty or len(merged_group_data) < 2:
@@ -119,7 +119,7 @@ def plot_growth_correlation_for_group(data: pd.DataFrame,
     ax.plot(x_line, y_line, color='red', linestyle='--', label=f'Fit: y={m:.2f}x+{b:.2f}')
 
     # Add labels and title
-    ax.set_title(f'Employee Growth vs Salary Growth ({group_name.capitalize()} Group, N={len(merged_group_data)})')
+    ax.set_title(f'Employee Growth (Absolute) vs Salary Growth ({group_name.capitalize()} Group, N={len(merged_group_data)})')
     ax.set_xlabel(emp_col)
     ax.set_ylabel(sal_col)
     ax.grid(True)
@@ -266,6 +266,83 @@ def create_preprocessing_pipeline(numeric_features: list, categorical_features: 
     return preprocessor
 
 
+# GENERATE SUMMARY OF CORRELATIONS BY OCCUPATION GROUP
+def generate_correlation_summary(data: pd.DataFrame, emp_growth_func, sal_growth_func):
+    """Calculates and prints a summary table of correlations between employee and salary growth by occupation group."""
+    print("\nGenerating Correlation Summary by Occupation Group...")
+    print("=" * 60)
+
+    groups = ['broad', 'detailed', 'major', 'minor']
+    results = {}
+
+    # Calculate correlation for each group
+    for group_name in groups:
+        data_filtered = data.dropna(subset=['o_group'])
+        group_df = data_filtered[data_filtered['o_group'].str.lower() == group_name.lower()].copy()
+
+        if group_df.empty or len(group_df['year'].unique()) < 2:
+            print(f"WARN: Insufficient data for group '{group_name}'. Skipping.")
+            results[group_name] = {'Correlation': np.nan, 'P-value': np.nan, 'N': 0}
+            continue
+            
+        # Ensure required columns are numeric before growth calculation
+        try:
+            group_df['tot_emp'] = pd.to_numeric(group_df['tot_emp'], errors='coerce')
+            if pd.api.types.is_object_dtype(group_df['a_mean']):
+                 group_df['a_mean'] = pd.to_numeric(group_df['a_mean'].astype(str).str.replace(',', ''), errors='coerce')
+            else:
+                 group_df['a_mean'] = pd.to_numeric(group_df['a_mean'], errors='coerce')
+            group_df = group_df.dropna(subset=['tot_emp', 'a_mean'])
+            
+            if group_df.empty or len(group_df['year'].unique()) < 2:
+                raise ValueError("Insufficient data after cleaning for growth calculation.")
+
+            emp_growth_group = emp_growth_func(group_df)
+            sal_growth_group = sal_growth_func(group_df)
+            merged_group_data = merge_growth_data(emp_growth_group, sal_growth_group)
+            
+            emp_col = 'Employee Growth Rate (Absolute)'
+            sal_col = 'Salary Growth Rate (%)'
+
+            if merged_group_data.empty or len(merged_group_data) < 2:
+                 raise ValueError("Not enough data points after merging growth data.")
+                 
+            correlation, p_value = pearsonr(merged_group_data[emp_col], merged_group_data[sal_col])
+            results[group_name] = {'Correlation': correlation, 'P-value': p_value, 'N': len(merged_group_data)}
+
+        except Exception as e:
+            print(f"WARN: Could not process group '{group_name}': {e}")
+            results[group_name] = {'Correlation': np.nan, 'P-value': np.nan, 'N': 0}
+
+    # Calculate "total" correlation across all data (if possible)
+    try:
+        emp_growth_total = emp_growth_func(data)
+        sal_growth_total = sal_growth_func(data)
+        merged_total_data = merge_growth_data(emp_growth_total, sal_growth_total)
+        if len(merged_total_data) >= 2:
+            correlation_total, p_value_total = pearsonr(merged_total_data[emp_col], merged_total_data[sal_col])
+            results['total'] = {'Correlation': correlation_total, 'P-value': p_value_total, 'N': len(merged_total_data)}
+        else:
+             results['total'] = {'Correlation': np.nan, 'P-value': np.nan, 'N': len(merged_total_data)}
+             print(f"WARN: Could not calculate total correlation, N={len(merged_total_data)}")
+
+    except Exception as e:
+        print(f"WARN: Could not calculate total correlation: {e}")
+        results['total'] = {'Correlation': np.nan, 'P-value': np.nan, 'N': 0}
+
+    # Format and print the table
+    print("\nSummary of Correlations by Occupation Group:")
+    print("=====================================================")
+    print(f"{'Occupation Group':<15} {'Correlation':>12} {'P-value':>10} {'N':>6}")
+    print("-" * 50)
+    for group, stats in results.items():
+        corr_str = f"{stats['Correlation']:.3f}" if not pd.isna(stats['Correlation']) else "NaN"
+        pval_str = f"{stats['P-value']:.3f}" if not pd.isna(stats['P-value']) else "NaN"
+        n_str = f"{stats['N']}"
+        print(f"{group:<15} {corr_str:>12} {pval_str:>10} {n_str:>6}")
+    print("=====================================================")
+
+
 # MAIN EXECUTION BLOCK
 def main():
     try:
@@ -294,9 +371,13 @@ def main():
         else:
             print("\nWARN: No suitable features found to define preprocessing pipeline.")
 
+        # Generate and print the correlation summary table
+        generate_correlation_summary(data, analyze_employee_growth, analyze_salary_growth)
+
         # Plot correlation for specific groups (Growth Rates)
-        plot_growth_correlation_for_group(data, 'major', analyze_employee_growth, analyze_salary_growth)
+        # plot_growth_correlation_for_group(data, 'major', analyze_employee_growth, analyze_salary_growth)
         plot_growth_correlation_for_group(data, 'minor', analyze_employee_growth, analyze_salary_growth)
+        plot_growth_correlation_for_group(data, 'broad', analyze_employee_growth, analyze_salary_growth)
 
         print("\nDisplaying all generated plots...")
         plt.show() # Show all plots at the end
@@ -307,5 +388,4 @@ def main():
         print(f"\nError during analysis: {str(e)}")
         raise
 
-if __name__ == '__main__':
-    main()
+main()
