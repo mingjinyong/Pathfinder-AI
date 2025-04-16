@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from scipy.stats import pearsonr
 
 # LOAD AND PREPROCESS THE COMBINED OEWS DATASET
 def load_standardized_data() -> pd.DataFrame:
@@ -208,7 +209,7 @@ def main():
         data = load_standardized_data()
         display_dataset_info(data)
 
-        print("\nAnalyzing mean annual employment growth rates...")
+        print("\nAnalyzing OVERALL mean annual employment growth rates...")
         print("=" * 50)
         growth_analysis = analyze_employee_growth(data)
         if not growth_analysis.empty:
@@ -248,4 +249,5 @@ def main():
         raise
 
 
-main()
+if __name__ == '__main__':
+    main()
